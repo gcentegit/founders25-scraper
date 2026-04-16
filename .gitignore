@@ -26,3 +26,7 @@ Thumbs.db
 # Build output
 dist/
 build/
+
+# Scraped data
+/data/
+lecciones_images/
