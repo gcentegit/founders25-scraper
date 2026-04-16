@@ -1,0 +1,47 @@
+{
+  "name": "founders25-scraper",
+  "version": "0.0.0-development",
+  "description": "Proyecto para scraping de datos de Founders25",
+  "main": "index.js",
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1",
+    "semantic-release": "semantic-release"
+  },
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/gcentegit/founders25-scraper.git"
+  },
+  "keywords": [
+    "scraper",
+    "founders25",
+    "web-scraping"
+  ],
+  "author": "gcentegit <alfamastbro+github@gmail.com>",
+  "license": "MIT",
+  "devDependencies": {
+    "@semantic-release/git": "^10.0.1",
+    "@semantic-release/changelog": "^6.0.3",
+    "semantic-release": "^21.0.7"
+  },
+  "release": {
+    "branches": [
+      "master"
+    ],
+    "plugins": [
+      "@semantic-release/commit-analyzer",
+      "@semantic-release/release-notes-generator",
+      "@semantic-release/changelog",
+      "@semantic-release/npm",
+      [
+        "@semantic-release/git",
+        {
+          "assets": [
+            "package.json",
+            "CHANGELOG.md"
+          ],
+          "message": "chore(release): ${nextRelease.version} [skip ci]\n\n${nextRelease.notes}"
+        }
+      ]
+    ]
+  }
+}
