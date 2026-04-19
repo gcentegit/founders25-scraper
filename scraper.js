@@ -17,7 +17,7 @@ const scrapedData = {
   lessons: []
 };
 
-async function scrapeWithPuppeteer(url, timeout = 30000) {
+async function scrapeWithPuppeteer(url, timeout = 30000, enableInfiniteScroll = false) {
   const browser = await puppeteer.launch({
     headless: true,
     args: [
@@ -53,6 +53,48 @@ async function scrapeWithPuppeteer(url, timeout = 30000) {
       }, { timeout: 10000 }).catch(() => {});
     } catch (e) {
       // Ignore timeout
+    }
+
+    // Implement infinite scroll if enabled
+    if (enableInfiniteScroll) {
+      console.log('Implementando scroll infinito...');
+      let previousHeight = 0;
+      let sameHeightCount = 0;
+      let scrollAttempts = 0;
+      const maxAttempts = 20; // Maximum number of scroll attempts
+      const scrollDelay = 2000; // Wait 2 seconds between scrolls
+
+      while (scrollAttempts < maxAttempts) {
+        // Scroll to bottom
+        await page.evaluate(() => {
+          window.scrollTo(0, document.body.scrollHeight);
+        });
+
+        // Wait for content to load
+        await new Promise(resolve => setTimeout(resolve, scrollDelay));
+
+        // Check if new content loaded
+        const currentHeight = await page.evaluate(() => document.body.scrollHeight);
+
+        if (currentHeight === previousHeight) {
+          sameHeightCount++;
+          console.log(`Scroll ${scrollAttempts + 1}: Altura no cambió (${currentHeight}px)`);
+
+          // If height didn't change for 3 attempts, assume all content is loaded
+          if (sameHeightCount >= 3) {
+            console.log('No hay más contenido para cargar');
+            break;
+          }
+        } else {
+          sameHeightCount = 0;
+          console.log(`Scroll ${scrollAttempts + 1}: Altura cambió de ${previousHeight}px a ${currentHeight}px`);
+          previousHeight = currentHeight;
+        }
+
+        scrollAttempts++;
+      }
+
+      console.log(`Scroll completado después de ${scrollAttempts} intentos`);
     }
 
     const content = await page.content();
@@ -204,7 +246,7 @@ async function scrapeLessons() {
   try {
     console.log('Scraping lessons data...');
     const cheerio = require('cheerio');
-    const html = await scrapeWithPuppeteer(LESSONS_URL, 40000);
+    const html = await scrapeWithPuppeteer(LESSONS_URL, 40000, true);
 
     // Debug: save HTML to file for inspection
     fs.writeFileSync('debug_lessons.html', html);
@@ -236,6 +278,9 @@ async function scrapeLessons() {
 
     console.log(`Found ${articles.length} lesson articles`);
     const lessonCards = articles;
+
+    // Store all discovered lesson URLs for individual scraping
+    const discoveredLessonUrls = new Set();
 
     lessonCards.each((index, card) => {
       try {
@@ -342,23 +387,183 @@ async function scrapeLessons() {
           image: image || 'N/A',
           videoUrl: videoUrl || 'N/A'
         });
+
+        // Store the URL for individual scraping
+        if (videoUrl && videoUrl !== 'N/A') {
+          discoveredLessonUrls.add(videoUrl);
+        }
       } catch (error) {
         errors.lessons.push(`Lesson ${index + 1}: ${error.message}`);
       }
     });
 
-    // Remove duplicates based on title
+    console.log(`Discovered ${discoveredLessonUrls.size} lesson URLs for individual scraping`);
+
+    // Scrape individual lesson pages to find more lessons
+    console.log('Scraping individual lesson pages to find more lessons...');
+    const additionalLessons = [];
+
+    for (const lessonUrl of discoveredLessonUrls) {
+      try {
+        console.log(`Scraping individual lesson: ${lessonUrl}`);
+        const lessonHtml = await scrapeWithPuppeteer(lessonUrl, 20000, false);
+        const $lesson = cheerio.load(lessonHtml);
+
+        // Look for links to other lessons in the page
+        $lesson('a[href*="/lecciones/"]').each(function() {
+          const href = $lesson(this).attr('href');
+          if (href && !href.includes('#')) {
+            const fullUrl = href.startsWith('/') ? BASE_URL + href : href;
+            if (!discoveredLessonUrls.has(fullUrl)) {
+              discoveredLessonUrls.add(fullUrl);
+              console.log(`Found new lesson URL: ${fullUrl}`);
+
+              // Try to scrape basic data from the link context
+              const linkText = $lesson(this).text().trim();
+              if (linkText && linkText.length > 3) {
+                additionalLessons.push({
+                  title: linkText,
+                  description: 'Discovered from individual lesson page',
+                  tags: 'N/A',
+                  tagsCount: 0,
+                  duration: 'N/A',
+                  views: 'N/A',
+                  category: 'N/A',
+                  image: 'N/A',
+                  videoUrl: fullUrl
+                });
+              }
+            }
+          }
+        });
+      } catch (error) {
+        console.log(`Error scraping individual lesson ${lessonUrl}: ${error.message}`);
+      }
+    }
+
+    console.log(`Found ${additionalLessons.length} additional lessons from individual pages`);
+
+    // Now scrape the additional lessons to get complete data
+    console.log('Scraping complete data for additional lessons...');
+    const completedAdditionalLessons = [];
+
+    for (let i = 0; i < additionalLessons.length; i++) {
+      const lesson = additionalLessons[i];
+      try {
+        console.log(`Getting complete data for lesson ${i + 1}/${additionalLessons.length}: ${lesson.title}`);
+        const lessonHtml = await scrapeWithPuppeteer(lesson.videoUrl, 20000, false);
+        const $lessonPage = cheerio.load(lessonHtml);
+
+        // Try to extract complete data from the individual lesson page
+        const $article = $lessonPage('article').first();
+        if ($article.length > 0) {
+          // Extract description
+          const description = $article.find('p').text().trim() || lesson.description;
+
+          // Extract tags
+          const tags = [];
+          $article.find('span[class*="font-medium"]').each((j, span) => {
+            const tagText = $lessonPage(span).text().trim();
+            if (tagText && tagText.length > 2 && tagText.length < 50 && !tagText.includes(lesson.title)) {
+              tags.push(tagText);
+            }
+          });
+
+          // Extract duration
+          let duration = 'N/A';
+          const clockSpan = $article.find('svg.lucide-clock').parent('span');
+          if (clockSpan.length > 0) {
+            duration = clockSpan.contents().not('svg').text().trim();
+          }
+
+          // Extract views
+          let views = 'N/A';
+          const eyeSpan = $article.find('svg.lucide-eye').parent('span');
+          if (eyeSpan.length > 0) {
+            views = eyeSpan.contents().not('svg').text().trim();
+          }
+
+          // Extract category
+          let category = 'N/A';
+          for (const tag of tags) {
+            if (['Principiante', 'Intermedio', 'Avanzado'].includes(tag)) {
+              category = tag;
+              break;
+            }
+          }
+
+          // Extract image
+          let image = 'N/A';
+          const $img = $article.find('img').first();
+          if ($img.length > 0) {
+            const srcset = $img.attr('srcset');
+            const src = $img.attr('src');
+            if (srcset) {
+              const firstUrl = srcset.split(',')[0].trim().split(' ')[0];
+              if (firstUrl) image = firstUrl;
+            } else if (src) {
+              image = src;
+            }
+          }
+
+          // Handle image URLs
+          if (image && image !== 'N/A') {
+            if (image.startsWith('/')) {
+              image = BASE_URL + image;
+            }
+            if (image.includes('/_next/image')) {
+              const urlParams = new URL(image, BASE_URL).searchParams;
+              const originalUrl = urlParams.get('url');
+              if (originalUrl) {
+                image = originalUrl.startsWith('/') ? BASE_URL + originalUrl : originalUrl;
+              }
+            }
+          }
+
+          completedAdditionalLessons.push({
+            title: lesson.title,
+            description: description,
+            tags: tags.join('; ') || 'N/A',
+            tagsCount: tags.length,
+            duration: duration || 'N/A',
+            views: views || 'N/A',
+            category: category || 'N/A',
+            image: image || 'N/A',
+            videoUrl: lesson.videoUrl
+          });
+        } else {
+          // Keep the basic data if we couldn't extract more
+          completedAdditionalLessons.push(lesson);
+        }
+      } catch (error) {
+        console.log(`Error getting complete data for ${lesson.title}: ${error.message}`);
+        completedAdditionalLessons.push(lesson);
+      }
+    }
+
+    console.log(`Completed data for ${completedAdditionalLessons.filter(l => l.description !== 'Discovered from individual lesson page').length} additional lessons`);
+
+    // Add completed additional lessons to the main data
+    console.log(`Before adding additional lessons: ${lessonsData.length} lessons`);
+    lessonsData.push(...completedAdditionalLessons);
+    console.log(`After adding additional lessons: ${lessonsData.length} lessons`);
+
+    // Remove duplicates based on title (case-insensitive and more robust)
     const uniqueLessons = [];
     const seenTitles = new Set();
+
     for (const lesson of lessonsData) {
-      if (!seenTitles.has(lesson.title)) {
-        seenTitles.add(lesson.title);
+      const normalizedTitle = lesson.title.toLowerCase().trim();
+      if (!seenTitles.has(normalizedTitle)) {
+        seenTitles.add(normalizedTitle);
         uniqueLessons.push(lesson);
+      } else {
+        console.log(`Skipping duplicate lesson: ${lesson.title}`);
       }
     }
 
     scrapedData.lessons = uniqueLessons;
-    console.log(`Found ${uniqueLessons.length} unique lessons`);
+    console.log(`Found ${uniqueLessons.length} unique lessons (${lessonsData.length - uniqueLessons.length} duplicates removed)`);
     return uniqueLessons;
   } catch (error) {
     errors.lessons.push(`General error: ${error.message}`);
@@ -506,13 +711,13 @@ async function main() {
 
     // Export to CSV
     if (pricingData.length > 0) {
-      await exportToCSV(pricingData, 'precios.csv', [
+      await exportToCSV(pricingData, 'data/precios.csv', [
         'planName', 'price', 'period', 'features', 'featuresCount'
       ]);
     }
 
     if (lessonsData.length > 0) {
-      await exportToCSV(lessonsData, 'lecciones.csv', [
+      await exportToCSV(lessonsData, 'data/lecciones.csv', [
         'title', 'description', 'tags', 'tagsCount', 'duration', 'views',
         'category', 'image', 'videoUrl'
       ]);
@@ -520,20 +725,20 @@ async function main() {
 
     // Export to JSON
     if (pricingData.length > 0) {
-      await exportToJSON(pricingData, 'precios.json');
+      await exportToJSON(pricingData, 'data/precios.json');
     }
 
     if (lessonsData.length > 0) {
-      await exportToJSON(lessonsData, 'lecciones.json');
+      await exportToJSON(lessonsData, 'data/lecciones.json');
     }
 
     // Download images
     if (pricingData.length > 0) {
-      await downloadImages(pricingData, 'precios_images', 'precio');
+      await downloadImages(pricingData, 'data/precios_images', 'precio');
     }
 
     if (lessonsData.length > 0) {
-      await downloadImages(lessonsData, 'lecciones_images', 'leccion');
+      await downloadImages(lessonsData, 'data/lecciones_images', 'leccion');
     }
 
     // Display results and errors
