@@ -4,7 +4,7 @@ Proyecto para scraping de datos de Founders25.
 
 ## Descripción
 
-Este proyecto se encarga de extraer y procesar datos de la plataforma Founders25.
+Este proyecto se encarga de extraer y procesar datos de la plataforma Founders25 utilizando técnicas avanzadas de scraping incluyendo scroll infinito y navegación de páginas individuales para maximizar la captura de contenido.
 
 ## Versionado Semántico (SEMVER)
 
@@ -69,6 +69,34 @@ npm run scrape
 # - data/lecciones_images/ - Imágenes de las lecciones descargadas
 ```
 
+## Estructura del Repositorio
+
+### En GitHub (versionado)
+- `scraper.js` - Código principal del scraper
+- `package.json` - Dependencias y scripts del proyecto
+- `README.md` - Documentación del proyecto
+- `.gitignore` - Configuración de exclusiones
+
+### En Local (excluido de GitHub)
+- `data/` - Datos scrapeados (CSV, JSON, imágenes)
+  - `data/precios.csv` - Precios en formato CSV
+  - `data/precios.json` - Precios en formato JSON
+  - `data/lecciones.csv` - Lecciones en formato CSV
+  - `data/lecciones.json` - Lecciones en formato JSON
+  - `data/precios_images/` - Imágenes de precios
+  - `data/lecciones_images/` - Imágenes de lecciones
+
+### Por qué se excluye `data/` de GitHub
+
+La carpeta `data/` está excluida del repositorio en el archivo `.gitignore` por las siguientes razones:
+
+- **Datos dinámicos**: Los datos scrapeados cambian constantemente con cada ejecución
+- **Commits innecesarios**: Cada ejecución del scraper generaría commits masivos de datos
+- **Repositorio limpio**: Evita archivos grandes que no son código fuente
+- **Práctica estándar**: En proyectos de scraping, los datos generados no se versionan
+
+Los usuarios pueden generar los datos localmente ejecutando `npm run scrape`.
+
 ## Datos Extraídos
 
 ### Precios
@@ -79,17 +107,55 @@ npm run scrape
 - **Plan Founder**: 499€ pago único con beneficios exclusivos
 
 ### Lecciones
-- **12 lecciones** extraídas con:
+- **25 lecciones** extraídas con:
   - Títulos, descripciones y URLs de video
   - Etiquetas (Acceso especial, niveles, categorías)
   - Duración, visualizaciones e imágenes de portada
+  - **Captura mejorada**: Utiliza scroll infinito y navegación de páginas individuales
+
+### Características del Scraper
+- **Scroll Infinito**: Detecta automáticamente contenido dinámico
+- **Navegación Individual**: Visita páginas de lecciones para encontrar más contenido
+- **Deduplicación Robusta**: Evita duplicados con normalización de títulos
+- **Extracción Completa**: Captura todos los datos disponibles públicamente
 
 ## Dependencias
 
-- **puppeteer**: Para navegación con JavaScript
+- **puppeteer**: Para navegación con JavaScript y renderizado de contenido dinámico
 - **cheerio**: Para parsing de HTML
 - **axios**: Para descarga de archivos
 - **csv-writer**: Para exportación a formato CSV
+
+## Flujo de Trabajo
+
+1. **Clone el repositorio**:
+   ```bash
+   git clone https://github.com/gcentegit/founders25-scraper.git
+   cd founders25-scraper
+   ```
+
+2. **Instale las dependencias**:
+   ```bash
+   npm install
+   ```
+
+3. **Ejecute el scraper**:
+   ```bash
+   npm run scrape
+   ```
+
+4. **Acceda a los datos generados**:
+   - Archivos CSV y JSON se generarán en la carpeta `data/`
+   - Las imágenes se descargarán en `data/precios_images/` y `data/lecciones_images/`
+
+5. **Actualice el repositorio** (si realizó cambios en el código):
+   ```bash
+   git add .
+   git commit -m "feat: descripción de los cambios"
+   git push origin master
+   ```
+
+**Nota**: No incluya la carpeta `data/` en los commits, ya que está excluida en `.gitignore`.
 
 ## Contribución
 
